@@ -1,0 +1,26 @@
+# backups and scratch
+*~
+tst
+shT.js
+shadeToggle.js
+shadeToggle[0-9]
+contents/
+.claude/
+
+# old Makefiles
+Makefile[0-9]
+Makefile-*
+
+# old metadata
+metadata*.json
+
+# old docs
+ModernWindowShading-*.md
+README-*.md
+
+# old/scratch bin variants
+bin/shadeBar*.py
+bin/shadeToggle[0-9]
+bin/shadeToggle-*
+bin/shadeToggle~
+bin/shadeToggle0
