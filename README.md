@@ -35,7 +35,7 @@ It also pairs naturally with virtual desktops. Each desktop can hold the shaded 
 ## Installation
 
 ```bash
-git clone https://github.com/yourname/wayland-shade-bar.git
+git clone https://github.com/stefanq/kde-wayland-window-shading.git
 cd wayland-shade-bar
 make install          # installs to ~/bin; use PREFIX=/usr/local for system-wide
 ```
@@ -54,9 +54,9 @@ A good choice is `Ctrl+I`, or any key combination that suits your workflow.
 
 ## How it works
 
-Classic KDE on X11 had window shading as a first-class compositor feature. Wayland's architecture made it impossible to carry over, and the KDE team marked it [WONTFIX](https://bugs.kde.org/show_bug.cgi?id=377162). This tool brings it back as a user-space solution.
+Classic KDE on X11 had window shading as a first-class compositor feature. Wayland's architecture — designed around strong client-compositor boundaries for good security and stability reasons — makes a direct equivalent genuinely impractical at the compositor level; the technical reasoning is documented in [KDE Bug #377162](https://bugs.kde.org/show_bug.cgi?id=377162). This tool fills the gap at user-space level instead.
 
-Wayland forbids applications from setting their own screen coordinates and forbids the compositor from forcibly resizing a client window. This tool works around both constraints:
+Wayland's protocol design keeps applications from setting their own screen coordinates, and keeps the compositor from forcibly resizing client surfaces — both deliberate choices with sound justification. This tool navigates both constraints:
 
 - A lightweight KWin script (injected on each keypress, unloaded immediately after) reads the target window's title and position, then minimizes it.
 - A PyQt6 widget running through Xwayland appears at the exact same coordinates. Xwayland lets KWin honour standard X11 absolute positioning, so the strip lands pixel-accurately across monitors and HiDPI setups.
@@ -66,7 +66,7 @@ Nothing persists between uses: no daemon, no background service, no lingering KW
 
 ### Background
 
-Window shading was a well-established feature across early desktop environments — Mac OS (via the WindowShade control panel), FVWM, and Window Maker among them. In KDE on X11 it was a first-class feature of KWin. The Plasma 6 / Wayland transition removed it: Wayland's protocol rules require clients to commit their own surface buffers, and apps with client-side decorations (GTK4, Electron, Chromium) crash or misrender if the compositor tries to shrink them. After years of community requests, upstream closed [KDE Bug #377162](https://bugs.kde.org/show_bug.cgi?id=377162) as `INTENTIONAL`.
+Window shading was a well-established feature across early desktop environments — Mac OS (via the WindowShade control panel), FVWM, and Window Maker among them. In KDE on X11 it was a first-class feature of KWin. The Plasma 6 / Wayland transition could not carry it forward: Wayland's protocol design requires clients to manage their own surface buffers, meaning the compositor cannot safely shrink a window below the size the client declared — apps with client-side decorations (GTK4, Electron, Chromium) would crash or misrender. The technical background is documented in [KDE Bug #377162](https://bugs.kde.org/show_bug.cgi?id=377162).
 
 ## License
 
