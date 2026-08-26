@@ -2,7 +2,7 @@
 
 **Roll any window up into its titlebar with a single keypress — on KDE Plasma 6 Wayland.**
 
-<!-- screenshot here -->
+![shadeToggle in action](toggleShade.png)
 
 ## What it does
 
