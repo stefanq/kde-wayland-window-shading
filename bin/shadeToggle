@@ -1,1 +1,210 @@
-shadeToggle-claude
+#!/usr/bin/env python3
+import sys, os, subprocess, tempfile
+from pathlib import Path
+
+# XCB/Xwayland: the only way to set absolute (x,y) without zwlr_layer_shell_v1
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+
+from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QLabel, QToolButton
+from PyQt6.QtCore import Qt, pyqtSlot, QPoint
+from PyQt6.QtGui import QPainter, QColor, QPainterPath, QPen, QPalette
+from PyQt6.QtDBus import QDBusConnection
+
+
+def get_theme_colors(app):
+    pal = app.palette()
+    bg = pal.color(QPalette.ColorRole.Window)
+    fg = pal.color(QPalette.ColorRole.WindowText)
+    accent = pal.color(QPalette.ColorRole.Highlight)
+
+    # Qt6+KDE platform theme already reads kdeglobals for app colors.
+    # Only the [WM] group holds titlebar-specific colors that differ.
+    kdeglobals = Path.home() / ".config" / "kdeglobals"
+    if kdeglobals.is_file():
+        group = ""
+        for line in kdeglobals.read_text(errors="ignore").splitlines():
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                group = line[1:-1]
+                if group not in ("WM", "General"):
+                    group = ""  # skip unneeded groups fast
+            elif group == "General" and line.startswith("AccentColor="):
+                parts = [int(x) for x in line.split("=", 1)[1].split(",") if x.strip().isdigit()]
+                if len(parts) >= 3:
+                    accent = QColor(*parts[:3])
+            elif group == "WM" and "=" in line:
+                k, v = line.split("=", 1)
+                parts = [int(x) for x in v.split(",") if x.strip().isdigit()]
+                if len(parts) >= 3:
+                    c = QColor(*parts[:3])
+                    if k.strip() == "activeBackground":
+                        bg = c
+                    elif k.strip() == "activeForeground":
+                        fg = c
+
+    btn_bg = bg.lighter(125) if bg.value() <= 128 else bg.darker(110)
+    btn_border = bg.lighter(150) if bg.value() <= 128 else bg.darker(130)
+    return bg, fg, accent, btn_bg, btn_border
+
+
+def run_kwin_js(js):
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(js)
+        path = f.name
+    sid = f"shade_{os.getpid()}"
+    def kw(*args):
+        subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting"] + list(args),
+                       stdout=subprocess.DEVNULL)
+    kw("org.kde.kwin.Scripting.loadScript", path, sid)
+    kw("org.kde.kwin.Scripting.start")
+    kw("org.kde.kwin.Scripting.unloadScript", sid)
+    os.unlink(path)
+
+
+class ShadeBar(QWidget):
+    def __init__(self, bg, fg, accent, btn_bg, btn_border):
+        super().__init__()
+        self.win_id = ""
+        self.orig_x = self.orig_y = 0
+        self._drag_pos = QPoint()
+
+        self.setWindowTitle("KWinShadeBar")
+        self.setObjectName("KWinShadeBar")
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        self.bg_color = QColor(bg.red(), bg.green(), bg.blue(), 178)
+        self.accent_color = accent
+
+        btn_bg_s = f"rgba({btn_bg.red()},{btn_bg.green()},{btn_bg.blue()},0.75)"
+        btn_bd_s = f"rgba({btn_border.red()},{btn_border.green()},{btn_border.blue()},0.85)"
+        self.setStyleSheet(f"""
+            QLabel {{
+                color: {fg.name()}; font-weight: bold; font-size: 18px;
+                padding-left: 10px; background: transparent; border: none;
+            }}
+            QToolButton {{
+                background: {btn_bg_s}; color: {fg.name()};
+                border: 1px solid {btn_bd_s}; border-radius: 6px;
+                font-weight: bold; font-size: 16px;
+                min-width: 32px; min-height: 32px; margin-right: 4px;
+            }}
+            QToolButton:hover {{ background: {accent.name()}; color: #fff; }}
+            QToolButton#btnClose:hover {{ background: #da4453; border-color: #ed1515; color: #fff; }}
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 6, 8, 6)
+        layout.setSpacing(6)
+
+        self.label = QLabel("Window")
+        layout.addWidget(self.label, 1)
+
+        btn_up = QToolButton(text="▲", toolTip="Unshade Window")
+        btn_up.clicked.connect(self.unshade_and_exit)
+        layout.addWidget(btn_up)
+
+        btn_x = QToolButton(text="✕", toolTip="Close Window", objectName="btnClose")
+        btn_x.clicked.connect(self.close_window_and_exit)
+        layout.addWidget(btn_x)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.rect().adjusted(1, 1, -1, -1)
+        path = QPainterPath()
+        path.addRoundedRect(float(r.x()), float(r.y()), float(r.width()), float(r.height()), 10.0, 10.0)
+        p.fillPath(path, self.bg_color)
+        p.setPen(QPen(self.accent_color, 1.5))
+        p.drawPath(path)
+
+    @pyqtSlot(str, str, str, str, str)
+    def show_bar(self, win_id, caption, x, y, width):
+        self.win_id = win_id
+        self.label.setText(caption or "Window")
+        self.orig_x, self.orig_y = int(float(x)), int(float(y))
+        self.setGeometry(self.orig_x, self.orig_y, max(int(float(width)), 260), 48)
+        self.show()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.MouseButton.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.unshade_and_exit()
+
+    def _find_win_js(self, body):
+        return f"""
+        var clients = workspace.windowList();
+        for (var i = 0; i < clients.length; i++) {{
+            if (clients[i].internalId.toString() === "{self.win_id}") {{
+                var c = clients[i]; {body} break;
+            }}
+        }}"""
+
+    def unshade_and_exit(self):
+        nx, ny = self.x(), self.y()
+        moved = f"var g=c.frameGeometry; g.x={nx}; g.y={ny}; c.frameGeometry=g;" \
+                if (nx != self.orig_x or ny != self.orig_y) else ""
+        run_kwin_js(self._find_win_js(
+            f"c.minimized=false; workspace.activeWindow=c; {moved}"
+        ))
+        QApplication.quit()
+
+    def close_window_and_exit(self):
+        run_kwin_js(self._find_win_js("c.closeWindow();"))
+        QApplication.quit()
+
+
+def main():
+    service_name = f"org.kde.ShadeBar_{os.getpid()}"
+    app = QApplication(sys.argv)
+    app.setApplicationName("KWinShadeBar")
+    app.setQuitOnLastWindowClosed(False)
+
+    bar = ShadeBar(*get_theme_colors(app))
+    bus = QDBusConnection.sessionBus()
+    if not bus.registerService(service_name):
+        sys.exit(1)
+    if not bus.registerObject("/ShadeBar", bar, QDBusConnection.RegisterOption.ExportAllSlots):
+        sys.exit(1)
+
+    run_kwin_js(f"""
+    (function() {{
+        function isShadeBar(w) {{
+            if (!w) return true;
+            var s = String(w.resourceClass||"") + String(w.resourceName||"") + String(w.caption||"");
+            return s.indexOf("ShadeBar") !== -1 || s.indexOf("shadeToggle") !== -1;
+        }}
+        var win = workspace.activeWindow;
+        if (!win || !win.normalWindow || win.deleted || isShadeBar(win)) {{
+            win = null;
+            var list = workspace.stackingOrder;
+            for (var i = list.length - 1; i >= 0; i--) {{
+                var c = list[i];
+                if (c.normalWindow && !c.minimized && !c.deleted && !isShadeBar(c)) {{
+                    win = c; break;
+                }}
+            }}
+        }}
+        if (!win) return;
+        var g = win.frameGeometry;
+        callDBus("{service_name}", "/ShadeBar", "", "show_bar",
+            win.internalId.toString(),
+            String(win.caption || "Window"),
+            String(Math.round(g.x)), String(Math.round(g.y)), String(Math.round(g.width)),
+            function() {{}});
+        win.minimized = true;
+    }})();
+    """)
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

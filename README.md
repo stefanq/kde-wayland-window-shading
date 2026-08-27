@@ -36,21 +36,21 @@ It also pairs naturally with virtual desktops. Each desktop can hold the shaded 
 
 ```bash
 git clone https://github.com/stefanq/kde-wayland-window-shading.git
-cd wayland-shade-bar
-make install          # installs to ~/bin; use PREFIX=/usr/local for system-wide
+cd kde-wayland-window-shading
+make install   # installs to ~/bin; use PREFIX=/usr/local for system-wide
 ```
+
+Instead of running `make install` you may simply copy the distributed script `bin/shadeToggle`
+to a directory in your $PATH (inspect with `env |grep PATH`).
 
 **Requirements:** KDE Plasma 6 (Wayland), Python 3.10+, PyQt6, `qdbus6`, Xwayland.
 
 ## Setup
 
-In **System Settings → Shortcuts → Custom Shortcuts**, add a command shortcut pointing to:
+In **System Settings → Shortcuts → Custom Shortcuts** (or run `kcmshell kcm_keys`)
+and create a keyboard shortcut with the command pointing to: `~/bin/shadeToggle`.
 
-```
-~/bin/shadeToggle
-```
-
-A good choice is `Ctrl+I`, or any key combination that suits your workflow.
+A good choice is `Meta+H`, or any key combination that suits your workflow.
 
 ## How it works
 
